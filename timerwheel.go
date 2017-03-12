@@ -20,89 +20,114 @@ package timerwheel
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
 
+// interface class to provide timer attributes
 type Timer interface {
 	Periodic() bool                //is this timer periodic
 	Interval() int64               //what is the interval of the timer in nano-seconds
 	Oneshot() bool                 //is this timer oneshot
 	Expired()                      //routine to call when the timer expires
 	Name() string                  //name of the timer (key for the timer wheel)
-	GetNextExpiration() int64      //when will the timer expire next
+	NextExpiration() int64         //when will the timer expire next
 	SetNextExpiration(int64) error //set when the timer will expire next
-	GetStartTime() int64           //set when the timer should fire first in nanoseconds
+	StartTime() int64              //set when the timer should fire first in nanoseconds
 }
 
+// timer wheel type definition
 type Timerwheel struct {
-	precision time.Duration // precision time duration in microseconds specified as (N * time.Microsecond)
-	maxTimers int           // number of max timers to be supported
-	timers    map[string]Timer
-	lock      sync.Mutex
-	ticker    *time.Ticker
-	suspended bool
+	precision     time.Duration // precision time duration in microseconds specified as (N * time.Microsecond)
+	maxTimers     int           // number of max timers to be supported
+	timers        map[string]Timer
+	lock          sync.Mutex
+	ticker        *time.Ticker
+	suspended     bool
+	deletedTimers []Timer
 }
 
+// create a new timer wheel
 func NewTimerWheel(precision time.Duration, maxTimers int) *Timerwheel {
 	return &Timerwheel{
-		precision: precision,
-		maxTimers: maxTimers,
-		timers:    make(map[string]Timer),
-		ticker:    time.NewTicker(precision),
-		suspended: true,
+		precision:     precision,
+		maxTimers:     maxTimers,
+		timers:        make(map[string]Timer),
+		ticker:        time.NewTicker(precision),
+		suspended:     true,
+		deletedTimers: make([]Timer, 0),
 	}
 }
 
+// add a timer to the timerwheel
 func (tw *Timerwheel) Addtimer(t Timer) error {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
 	if len(tw.timers) < tw.maxTimers {
+		t.SetNextExpiration(time.Now().UnixNano() + t.StartTime())
 		tw.timers[t.Name()] = t
-		t.SetNextExpiration(time.Now().UnixNano() + t.GetStartTime())
-		if len(tw.timers) == 1 {
+		if len(tw.timers) == 1 && tw.suspended {
 			tw.suspended = false
 			go tw.Run()
 		}
+
 		return nil
 	}
 	return errors.New("Already have max timers in the timer wheel")
 }
 
+// delete a timer from timer wheel by name
 func (tw *Timerwheel) Deletetimer(t Timer) error {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
 	return tw.deleteTimer(t)
 }
 
+// internal unprotected method to delete timer
 func (tw *Timerwheel) deleteTimer(t Timer) error {
+	fmt.Println("Length of the timer array", len(tw.timers))
 	delete(tw.timers, t.Name())
+	fmt.Println("Length of the timer array", len(tw.timers))
 	if len(tw.timers) == 0 {
 		tw.suspended = true
 	}
 	return nil
 }
 
+// run method for a timer wheel
+
 func (tw *Timerwheel) Run() {
+	if tw.suspended {
+		fmt.Println("I am done guys")
+		return
+	}
 	for _ = range tw.ticker.C {
-		tw.lock.Lock()
-		defer tw.lock.Unlock()
 		if tw.suspended {
+			fmt.Println("Breaking and stopping the run() method")
 			break
 		}
+		tw.lock.Lock()
 		for _, timer := range tw.timers {
-			if timer.GetNextExpiration() <= time.Now().UnixNano() {
+			if timer.NextExpiration() <= time.Now().UnixNano() {
+				timer.Expired()
 				if timer.Periodic() {
 					timer.SetNextExpiration(time.Now().UnixNano() + timer.Interval())
 				} else {
-					tw.deleteTimer(timer)
+					fmt.Printf("Deleting timer: %v\n", timer.Name())
+					tw.deletedTimers = append(tw.deletedTimers, timer)
 				}
-				timer.Expired()
 			}
 		}
+		for _, timer := range tw.deletedTimers {
+			tw.deleteTimer(timer)
+		}
+		tw.deletedTimers = tw.deletedTimers[:0]
+		tw.lock.Unlock()
 	}
 }
 
+// is the timer wheel running?
 func (tw *Timerwheel) Running() bool {
-	return tw.suspended
+	return !tw.suspended
 }
