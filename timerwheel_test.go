@@ -79,11 +79,23 @@ func (mt *MockTimer) Expired() {
 func TestTimerWheelMaxTimers(t *testing.T) {
 	tw := NewTimerWheel(1*time.Microsecond, 3)
 	if tw != nil {
-		err := tw.Addtimer(NewMockTimer(false, int64(1*time.Second), int64(10*time.Millisecond), 1, "I am number one"))
-		err = tw.Addtimer(NewMockTimer(true, int64(2*time.Second), int64(20*time.Millisecond), 2, "I am number two"))
-		err = tw.Addtimer(NewMockTimer(true, int64(3*time.Second), int64(30*time.Millisecond), 3, "I am number three"))
+		t1 := NewMockTimer(false, int64(1*time.Second), int64(10*time.Millisecond), 1, "I am number one")
+		err := tw.Addtimer(t1)
+		t2 := NewMockTimer(true, int64(2*time.Second), int64(20*time.Millisecond), 2, "I am number two")
+		err = tw.Addtimer(t2)
+		t3 := NewMockTimer(true, int64(3*time.Second), int64(30*time.Millisecond), 3, "I am number three")
+		err = tw.Addtimer(t3)
 		err = tw.Addtimer(NewMockTimer(false, int64(4*time.Second), int64(25*time.Millisecond), 4, "I am number four"))
 		if err == nil {
+			t.Fail()
+		}
+		runDuration := time.NewTicker(1 * time.Second)
+		select {
+		case <-runDuration.C:
+			tw.Deletetimer(t2)
+			tw.Deletetimer(t3)
+		}
+		if tw.Running() {
 			t.Fail()
 		}
 	}
@@ -102,7 +114,7 @@ func TestTimerWheel(t *testing.T) {
 		if err != nil {
 			t.Fail()
 		}
-		runDuration := time.NewTicker(15 * time.Second)
+		runDuration := time.NewTicker(5 * time.Second)
 		select {
 		case <-runDuration.C:
 			tw.Deletetimer(t2)

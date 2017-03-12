@@ -20,7 +20,6 @@ package timerwheel
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -86,9 +85,7 @@ func (tw *Timerwheel) Deletetimer(t Timer) error {
 
 // internal unprotected method to delete timer
 func (tw *Timerwheel) deleteTimer(t Timer) error {
-	fmt.Println("Length of the timer array", len(tw.timers))
 	delete(tw.timers, t.Name())
-	fmt.Println("Length of the timer array", len(tw.timers))
 	if len(tw.timers) == 0 {
 		tw.suspended = true
 	}
@@ -98,14 +95,9 @@ func (tw *Timerwheel) deleteTimer(t Timer) error {
 // run method for a timer wheel
 
 func (tw *Timerwheel) Run() {
-	if tw.suspended {
-		fmt.Println("I am done guys")
-		return
-	}
 	for _ = range tw.ticker.C {
 		if tw.suspended {
-			fmt.Println("Breaking and stopping the run() method")
-			break
+			return
 		}
 		tw.lock.Lock()
 		for _, timer := range tw.timers {
@@ -114,7 +106,6 @@ func (tw *Timerwheel) Run() {
 				if timer.Periodic() {
 					timer.SetNextExpiration(time.Now().UnixNano() + timer.Interval())
 				} else {
-					fmt.Printf("Deleting timer: %v\n", timer.Name())
 					tw.deletedTimers = append(tw.deletedTimers, timer)
 				}
 			}
